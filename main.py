@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
@@ -12,6 +12,8 @@ from services.vlm_service import extract_text_from_pdf, extract_text_from_image
 from services.llm_service import suggest_topics, generate_flashcards, generate_quiz, answer_question_with_context
 import redis
 import json
+import traceback
+from fastapi.responses import JSONResponse
 
 load_dotenv()
 
@@ -36,54 +38,84 @@ supabase = create_client(
 # Redis client
 redis_client = redis.from_url(os.getenv("UPSTASH_REDIS_URL"))
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+            "path": str(request.url)
+        }
+    )
+
 # ===== UPLOAD ENDPOINT =====
 @app.post("/handouts/upload")
 async def upload_handout(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload PDF/image handout"""
-    
-    # Validate file type
-    if file.content_type not in ["application/pdf", "image/jpeg", "image/png"]:
-        raise HTTPException(400, "Only PDF and images allowed")
-    
-    # Generate unique filename
-    file_ext = file.filename.split(".")[-1]
-    unique_filename = f"{uuid.uuid4()}.{file_ext}"
-    
-    # Upload to Supabase Storage
-    file_bytes = await file.read()
-    
-    result = supabase.storage.from_("handouts").upload(
-        f"uploads/{unique_filename}",
-        file_bytes,
-        {"content-type": file.content_type}
-    )
-    
-    # Get public URL
-    file_url = supabase.storage.from_("handouts").get_public_url(
-        f"uploads/{unique_filename}"
-    )
-    
-    # Create handout record
-    handout = Handout(
-        title=file.filename,
-        file_url=file_url,
-        status=ProcessingStatus.UPLOADED
-    )
-    db.add(handout)
-    db.commit()
-    db.refresh(handout)
-    
-    # Queue processing job
-    redis_client.lpush("handout_queue", str(handout.id))
-    
-    return {
-        "id": handout.id,
-        "status": handout.status.value,
-        "message": "Upload successful, processing queued"
-    }
+    try:
+        # Validate file type
+        if file.content_type not in ["application/pdf", "image/jpeg", "image/png"]:
+            raise HTTPException(400, f"Invalid file type: {file.content_type}. Only PDF and images allowed")
+        
+        print(f"Uploading file: {file.filename}, type: {file.content_type}")
+        
+        # Generate unique filename
+        file_ext = file.filename.split(".")[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_ext}"
+        
+        print(f"Generated filename: {unique_filename}")
+        
+        # Upload to Supabase Storage
+        file_bytes = await file.read()
+        
+        print(f"File size: {len(file_bytes)} bytes")
+        print(f"Uploading to Supabase...")
+        
+        result = supabase.storage.from_("handouts").upload(
+            f"uploads/{unique_filename}",
+            file_bytes,
+            {"content-type": file.content_type}
+        )
+        
+        print(f"Supabase upload result: {result}")
+        
+        # Get public URL
+        file_url = supabase.storage.from_("handouts").get_public_url(
+            f"uploads/{unique_filename}"
+        )
+        
+        print(f"File URL: {file_url}")
+        
+        # Create handout record
+        handout = Handout(
+            title=file.filename,
+            file_url=file_url,
+            status=ProcessingStatus.UPLOADED
+        )
+        db.add(handout)
+        db.commit()
+        db.refresh(handout)
+        
+        print(f"Created handout with ID: {handout.id}")
+        
+        # Queue processing job
+        redis_client.lpush("handout_queue", str(handout.id))
+        
+        print(f"Queued processing job for handout {handout.id}")
+        
+        return {
+            "id": handout.id,
+            "status": handout.status.value,
+            "message": "Upload successful, processing queued"
+        }
+        
+    except Exception as e:
+        print(f"ERROR in upload: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 
 # ===== STATUS ENDPOINT =====
 @app.get("/handouts/{handout_id}/status")

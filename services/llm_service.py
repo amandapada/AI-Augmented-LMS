@@ -4,6 +4,8 @@ import json
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+MODEL = "llama-3.3-70b-versatile"
+
 def suggest_topics(text):
     """Extract 3-5 topic tags from handout text"""
     
@@ -13,12 +15,12 @@ Return ONLY a JSON array of topic names, nothing else.
 Example: ["Fourier Transform", "Signal Processing", "Frequency Domain"]
 
 Handout text:
-{text[:3000]}  # First 3000 chars
+{text[:3000]}
 
 JSON array of topics:"""
 
     response = client.chat.completions.create(
-        model="mixtral-8x7b-32768",
+        model=MODEL,  
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=200
@@ -52,7 +54,7 @@ Handout text:
 JSON array of flashcards:"""
 
     response = client.chat.completions.create(
-        model="mixtral-8x7b-32768",
+        model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
         max_tokens=2000
@@ -96,7 +98,7 @@ Handout text:
 JSON quiz:"""
 
     response = client.chat.completions.create(
-        model="mixtral-8x7b-32768",
+        model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
         max_tokens=3000
@@ -129,7 +131,7 @@ Student question: {question}
 Answer:"""
 
     response = client.chat.completions.create(
-        model="mixtral-8x7b-32768",
+        model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=500
