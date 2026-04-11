@@ -1,4 +1,3 @@
-# test_redis.py
 import redis
 import os
 from dotenv import load_dotenv

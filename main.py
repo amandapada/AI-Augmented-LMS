@@ -211,7 +211,7 @@ async def chat_with_handout(
     if not handout or not handout.extracted_text:
         raise HTTPException(404, "Handout not ready")
     
-    # Simple RAG: split text into chunks (for MVP, no embeddings yet)
+    # Simple RAG: split text into chunks
     text = handout.extracted_text
     chunk_size = 1000
     chunks = [

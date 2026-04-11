@@ -23,10 +23,6 @@ def extract_text_from_pdf(pdf_path):
         else:
             full_text += f"\n\n=== Page {page_num + 1} ===\n{text}"
     
-    # For scanned pages, use VLM (if needed)
-    # Note: Groq's Llama 3.2 Vision can handle images
-    # For MVP, we'll keep the text extraction simple
-    
     return {
         "text": full_text,
         "confidence": 0.9 if len(low_confidence_pages) == 0 else 0.6,
