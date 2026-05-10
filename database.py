@@ -8,10 +8,18 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL,
-                       pool_pre_ping=True,
-                       pool_recycle=300
-                       )
+if not DATABASE_URL:
+    # Dev-friendly default so the API can boot without env configuration.
+    DATABASE_URL = "sqlite:///./app.db"
+
+_engine_kwargs = {"pool_pre_ping": True, "pool_recycle": 300}
+if DATABASE_URL.startswith("sqlite:"):
+    # SQLite doesn't support these pool settings the same way; also needs this
+    # when used with FastAPI dependencies across threads.
+    _engine_kwargs.pop("pool_recycle", None)
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

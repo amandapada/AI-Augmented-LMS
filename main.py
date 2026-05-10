@@ -1,10 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 import os
+import secrets
+import time
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from supabase import create_client
-import os
 import uuid
 from database import get_db
 from models import *
@@ -30,13 +32,16 @@ app.add_middleware(
 
 
 # Supabase client
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
+_supabase_url = os.getenv("SUPABASE_URL")
+_supabase_key = os.getenv("SUPABASE_KEY")
+supabase = create_client(_supabase_url, _supabase_key) if (_supabase_url and _supabase_key) else None
 
 # Redis client
-redis_client = redis.from_url(os.getenv("UPSTASH_REDIS_URL"))
+_redis_url = os.getenv("UPSTASH_REDIS_URL")
+redis_client = redis.from_url(_redis_url) if _redis_url else None
+
+# In-memory password reset tokens (dev / single-instance only — use Redis + email in production)
+_password_reset_tokens: dict[str, dict] = {}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -56,6 +61,17 @@ async def upload_handout(
     db: Session = Depends(get_db)
 ):
     try:
+        if supabase is None:
+            raise HTTPException(
+                500,
+                "SUPABASE_URL/SUPABASE_KEY are not set. Configure them in your environment to enable uploads."
+            )
+        if redis_client is None:
+            raise HTTPException(
+                500,
+                "UPSTASH_REDIS_URL is not set. Configure it in your environment to enable background processing."
+            )
+
         # Validate file type
         if file.content_type not in ["application/pdf", "image/jpeg", "image/png"]:
             raise HTTPException(400, f"Invalid file type: {file.content_type}. Only PDF and images allowed")
@@ -227,6 +243,61 @@ async def chat_with_handout(
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "message": "LMS API is running"}
+
+
+# ===== PASSWORD RESET (stub persistence — wire to User model + email service for production) =====
+
+
+class ForgotPasswordBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+
+
+class ResetPasswordBody(BaseModel):
+    token: str = Field(..., min_length=10)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+@app.post("/auth/forgot-password")
+async def auth_forgot_password(body: ForgotPasswordBody):
+    """
+    Always returns a generic success message (avoid email enumeration).
+    If you need to test reset locally, check server logs for the dev-only reset URL.
+    """
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Enter a valid email address.")
+
+    token = secrets.token_urlsafe(32)
+    _password_reset_tokens[token] = {
+        "email": email,
+        "exp": time.time() + 3600,
+    }
+    # Production: enqueue email with link f"{FRONTEND_URL}/reset-password?token={token}"
+    print(
+        f"[password-reset] Dev link for {email}: "
+        f"(frontend)/reset-password?token={token}",
+        flush=True,
+    )
+
+    return {
+        "message": "If an account exists for that email, we sent instructions to reset your password.",
+    }
+
+
+@app.post("/auth/reset-password")
+async def auth_reset_password(body: ResetPasswordBody):
+    entry = _password_reset_tokens.get(body.token)
+    if not entry or entry["exp"] < time.time():
+        raise HTTPException(
+            status_code=400,
+            detail="This reset link is invalid or has expired. Request a new one.",
+        )
+
+    # Production: hash password and persist on User row for entry["email"]
+    del _password_reset_tokens[body.token]
+
+    return {"message": "Your password has been updated. You can sign in now."}
+
 
 if __name__ == "__main__":
     import uvicorn

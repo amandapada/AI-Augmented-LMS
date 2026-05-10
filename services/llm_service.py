@@ -2,7 +2,11 @@ import os
 from groq import Groq
 import json
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+def _get_groq_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    return Groq(api_key=api_key)
 
 MODEL = "llama-3.3-70b-versatile"
 
@@ -19,6 +23,7 @@ Handout text:
 
 JSON array of topics:"""
 
+    client = _get_groq_client()
     response = client.chat.completions.create(
         model=MODEL,  
         messages=[{"role": "user", "content": prompt}],
@@ -53,6 +58,7 @@ Handout text:
 
 JSON array of flashcards:"""
 
+    client = _get_groq_client()
     response = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -119,6 +125,7 @@ Content:
 JSON array:"""
 
     try:
+        client = _get_groq_client()
         # Get MCQ
         mcq_response = client.chat.completions.create(
             model=MODEL,
@@ -189,6 +196,7 @@ Student question: {question}
 
 Answer:"""
 
+    client = _get_groq_client()
     response = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],

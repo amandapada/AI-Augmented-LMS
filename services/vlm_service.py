@@ -5,7 +5,11 @@ from PyPDF2 import PdfReader
 from PIL import Image
 import io
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+def _get_groq_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    return Groq(api_key=api_key)
 
 def extract_text_from_pdf(pdf_path):
     """Extract text from PDF using PyPDF2 first, then VLM for scanned pages"""
@@ -38,6 +42,7 @@ def extract_text_from_image(image_path):
     
     # Call Groq Vision API
     try:
+        client = _get_groq_client()
         response = client.chat.completions.create(
             model="llama-3.2-90b-vision-preview",
             messages=[
