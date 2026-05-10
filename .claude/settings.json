@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/ASUS TUF GAMING/.claude/projects/c--Projects-AI-Augmented-LMS/memory/**)",
+      "Bash(python -m scripts.smoke_test)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\ASUS TUF GAMING\\.claude\\projects\\c--Projects-AI-Augmented-LMS\\memory"
+    ]
+  }
+}

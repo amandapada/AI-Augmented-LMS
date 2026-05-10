@@ -6,6 +6,7 @@ function apiBase() {
 }
 
 function formatApiError(data, status, statusText) {
+  if (data?.message && typeof data.message === 'string') return data.message
   const d = data?.detail
   if (typeof d === 'string') return d
   if (Array.isArray(d))
@@ -63,7 +64,7 @@ export function AuthProvider({ children }) {
       },
       signOut: () => setAuth({ user: null, role: null }),
       requestPasswordReset: async (email) => {
-        const res = await fetch(`${apiBase()}/auth/forgot-password`, {
+        const res = await fetch(`${apiBase()}/api/v1/auth/forgot-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: String(email || '').trim().toLowerCase() }),
@@ -74,7 +75,7 @@ export function AuthProvider({ children }) {
         return data
       },
       resetPasswordWithToken: async (token, password) => {
-        const res = await fetch(`${apiBase()}/auth/reset-password`, {
+        const res = await fetch(`${apiBase()}/api/v1/auth/reset-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token, password }),
