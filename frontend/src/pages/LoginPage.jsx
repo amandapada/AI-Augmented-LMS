@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { toast } from 'react-toastify'
 import { Blob } from '../components/Brand/Blob'
 import { Wordmark } from '../components/Brand/Wordmark'
 import { Button } from '../components/ui/Button'
@@ -7,6 +8,8 @@ import { Input } from '../components/ui/Input'
 import { AuthLayout } from '../layouts/AuthLayout'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { useAuth } from '../context/useAuth'
+import { getApiErrorMessage } from '../utils/apiErrorMessage.js'
+import { validateEmail, validateNewPassword } from '../utils/authValidation.js'
 
 function AuthSidebar({ title, description }) {
   return (
@@ -44,33 +47,57 @@ function AuthPanel({ children }) {
   )
 }
 
+function dashboardPathForRole(role) {
+  if (role === 'student') return '/student'
+  if (role === 'lecturer' || role === 'admin') return '/lecturer'
+  return '/login'
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const resetSuccess = searchParams.get('reset') === 'success'
   const { signIn } = useAuth()
-  const [role, setRole] = useState('student')
+  const [roleHint, setRoleHint] = useState('student')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fieldErrors, setFieldErrors] = useState(
+    /** @type {{ email?: string; password?: string }} */ ({}),
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [loginError, setLoginError] = useState('')
 
   async function onSubmit(e) {
     e.preventDefault()
-    setLoginError('')
-    const trimmedEmail = email.trim()
-    if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      setLoginError('Please enter your email address (include @ and your domain).')
+    const nextErrors = {}
+    const emailResult = validateEmail(email)
+    if (!emailResult.ok) nextErrors.email = emailResult.message
+    const passResult = validateNewPassword(password)
+    if (!passResult.ok) nextErrors.password = passResult.message
+    setFieldErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      toast.error('Please fix the errors below.')
       return
     }
+
     setIsSubmitting(true)
     try {
-      const session = await signIn({ email: trimmedEmail, password })
-      const r = session?.role
-      if (r === 'lecturer' || r === 'admin') navigate('/lecturer', { replace: true })
-      else navigate('/student', { replace: true })
+      const user = await signIn({
+        email: emailResult.ok ? emailResult.email : email,
+        password: passResult.ok ? passResult.password : password,
+      })
+      if (!user?.role) {
+        toast.error('Invalid response from server.')
+        return
+      }
+      if (user.role !== roleHint) {
+        toast.info(`Signed in as ${user.role}. Redirecting to the right workspace.`)
+      } else {
+        toast.success('Signed in successfully.')
+      }
+      navigate(dashboardPathForRole(user.role), { replace: true })
     } catch (err) {
-      setLoginError(err?.message || 'Sign in failed.')
+      toast.error(getApiErrorMessage(err))
     } finally {
       setIsSubmitting(false)
     }
@@ -94,7 +121,7 @@ export function LoginPage() {
             </p>
           </div>
 
-          <form className="mt-7 space-y-4" onSubmit={onSubmit}>
+          <form className="mt-7 space-y-4" onSubmit={onSubmit} noValidate>
             {resetSuccess ? (
               <div
                 className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-100/90"
@@ -113,41 +140,66 @@ export function LoginPage() {
             ) : null}
             <div className="pb-1">
               <SegmentedControl
-                value={role}
-                onChange={setRole}
+                value={roleHint}
+                onChange={setRoleHint}
                 options={[
                   { label: 'Student', value: 'student' },
                   { label: 'Lecturer', value: 'lecturer' },
                 ]}
               />
+              <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+                Your account role comes from the server; this choice is only used to highlight a
+                mismatch after sign-in.
+              </p>
             </div>
-            <Input
-              label="EMAIL ADDRESS"
-              type="email"
-              autoComplete="email"
-              placeholder="name@student.abu.edu.ng"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              aria-label="Email address"
-            />
+            <div>
+              <Input
+                label="EMAIL ADDRESS"
+                type="email"
+                autoComplete="email"
+                placeholder="name@student.abu.edu.ng"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  if (fieldErrors.email) setFieldErrors((p) => ({ ...p, email: undefined }))
+                }}
+                aria-label="Email address"
+                aria-invalid={Boolean(fieldErrors.email)}
+                maxLength={254}
+              />
+              {fieldErrors.email ? (
+                <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.email}</p>
+              ) : null}
+            </div>
 
-            <Input
-              label="PASSWORD"
-              labelRight={
-                <Link
-                  to="/forgot-password"
-                  className="text-[11px] font-medium text-[#3B82F6]/90 hover:text-[#3B82F6]"
-                >
-                  Forgot password?
-                </Link>
-              }
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-label="Password"
-            />
+            <div>
+              <Input
+                label="PASSWORD"
+                labelRight={
+                  <Link
+                    to="/forgot-password"
+                    className="text-[11px] font-medium text-[#3B82F6]/90 hover:text-[#3B82F6]"
+                  >
+                    Forgot password?
+                  </Link>
+                }
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }))
+                }}
+                aria-label="Password"
+                aria-invalid={Boolean(fieldErrors.password)}
+                minLength={8}
+                maxLength={128}
+              />
+              {fieldErrors.password ? (
+                <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.password}</p>
+              ) : null}
+            </div>
 
             <div className="pt-2">
               <Button type="submit" disabled={isSubmitting}>

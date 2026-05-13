@@ -1,11 +1,20 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'react-toastify'
 import { Blob } from '../components/Brand/Blob'
 import { Wordmark } from '../components/Brand/Wordmark'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { RoleCard } from '../components/ui/RoleCard'
 import { AuthLayout } from '../layouts/AuthLayout'
+import { useAuth } from '../context/useAuth'
+import { getApiErrorMessage } from '../utils/apiErrorMessage.js'
+import {
+  PASSWORD_MAX,
+  toApiRole,
+  validateEmail,
+  validateNewPassword,
+} from '../utils/authValidation.js'
 
 function AuthSidebar({ title, description }) {
   return (
@@ -43,10 +52,22 @@ function AuthPanel({ children }) {
   )
 }
 
+function dashboardPathForRole(role) {
+  if (role === 'student') return '/student'
+  if (role === 'lecturer' || role === 'admin') return '/lecturer'
+  return '/login'
+}
+
 export function RegisterPage() {
+  const navigate = useNavigate()
+  const { signUp } = useAuth()
   const [role, setRole] = useState('student')
   const [email, setEmail] = useState('')
+  const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
+  const [fieldErrors, setFieldErrors] = useState(
+    /** @type {{ email?: string; password?: string; full_name?: string }} */ ({}),
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const roleCopy = useMemo(
@@ -59,10 +80,33 @@ export function RegisterPage() {
 
   async function onSubmit(e) {
     e.preventDefault()
+    const nextErrors = {}
+    const emailResult = validateEmail(email)
+    if (!emailResult.ok) nextErrors.email = emailResult.message
+    const passResult = validateNewPassword(password)
+    if (!passResult.ok) nextErrors.password = passResult.message
+    const trimmedName = fullName.trim()
+    if (trimmedName.length > 120) nextErrors.full_name = 'Name must be at most 120 characters.'
+
+    setFieldErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      toast.error('Please fix the errors below.')
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      // Placeholder for real registration integration
-      await new Promise((r) => setTimeout(r, 800))
+      const user = await signUp({
+        email: emailResult.ok ? emailResult.email : email,
+        password: passResult.ok ? passResult.password : password,
+        role: toApiRole(role),
+        ...(trimmedName ? { full_name: trimmedName } : {}),
+      })
+      toast.success('Account created. You are signed in.')
+      if (user?.role) navigate(dashboardPathForRole(user.role), { replace: true })
+      else navigate('/login', { replace: true })
+    } catch (err) {
+      toast.error(getApiErrorMessage(err))
     } finally {
       setIsSubmitting(false)
     }
@@ -86,26 +130,65 @@ export function RegisterPage() {
             </p>
           </div>
 
-          <form className="mt-7 space-y-4" onSubmit={onSubmit}>
+          <form className="mt-7 space-y-4" onSubmit={onSubmit} noValidate>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Input
-                label="EMAIL ADDRESS"
-                type="email"
-                autoComplete="email"
-                placeholder="name@student.abu.edu.ng"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                aria-label="Email address"
-              />
-              <Input
-                label="PASSWORD"
-                type="password"
-                autoComplete="new-password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                aria-label="Password"
-              />
+              <div className="sm:col-span-2">
+                <Input
+                  label="FULL NAME (OPTIONAL)"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="e.g. Amina Yusuf"
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value)
+                    if (fieldErrors.full_name) setFieldErrors((p) => ({ ...p, full_name: undefined }))
+                  }}
+                  aria-label="Full name"
+                  maxLength={120}
+                />
+                {fieldErrors.full_name ? (
+                  <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.full_name}</p>
+                ) : null}
+              </div>
+              <div>
+                <Input
+                  label="EMAIL ADDRESS"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="name@student.abu.edu.ng"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    if (fieldErrors.email) setFieldErrors((p) => ({ ...p, email: undefined }))
+                  }}
+                  aria-label="Email address"
+                  aria-invalid={Boolean(fieldErrors.email)}
+                  maxLength={254}
+                />
+                {fieldErrors.email ? (
+                  <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.email}</p>
+                ) : null}
+              </div>
+              <div>
+                <Input
+                  label="PASSWORD"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }))
+                  }}
+                  aria-label="Password"
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  minLength={8}
+                  maxLength={PASSWORD_MAX}
+                />
+                {fieldErrors.password ? (
+                  <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.password}</p>
+                ) : null}
+              </div>
             </div>
 
             <div className="pt-2">
@@ -149,4 +232,3 @@ export function RegisterPage() {
     </AuthLayout>
   )
 }
-

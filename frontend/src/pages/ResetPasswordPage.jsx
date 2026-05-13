@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { toast } from 'react-toastify'
 import { Blob } from '../components/Brand/Blob'
 import { Wordmark } from '../components/Brand/Wordmark'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { AuthLayout } from '../layouts/AuthLayout'
 import { useAuth } from '../context/useAuth'
+import { getApiErrorMessage } from '../utils/apiErrorMessage.js'
+import { PASSWORD_MAX, validateNewPassword } from '../utils/authValidation.js'
 
 function AuthSidebar({ title, description }) {
   return (
@@ -52,26 +55,34 @@ export function ResetPasswordPage() {
 
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [fieldErrors, setFieldErrors] = useState(
+    /** @type {{ password?: string; confirm?: string }} */ ({}),
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState('')
 
   async function onSubmit(e) {
     e.preventDefault()
-    setError('')
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    const next = {}
+    const passResult = validateNewPassword(password)
+    if (!passResult.ok) next.password = passResult.message
+    const confirmResult = validateNewPassword(confirm)
+    if (!confirmResult.ok) next.confirm = confirmResult.message
+    if (passResult.ok && confirmResult.ok && passResult.password !== confirmResult.password) {
+      next.confirm = 'Passwords do not match.'
+    }
+    setFieldErrors(next)
+    if (Object.keys(next).length > 0) {
+      toast.error('Please fix the errors below.')
       return
     }
-    if (password !== confirm) {
-      setError('Passwords do not match.')
-      return
-    }
+
     setIsSubmitting(true)
     try {
-      await resetPasswordWithToken(token, password)
+      await resetPasswordWithToken(token, passResult.ok ? passResult.password : password)
+      toast.success('Password updated. You can sign in now.')
       navigate('/login?reset=success', { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not reset password.')
+      toast.error(getApiErrorMessage(err))
     } finally {
       setIsSubmitting(false)
     }
@@ -116,39 +127,48 @@ export function ResetPasswordPage() {
               </p>
             </div>
           ) : (
-            <form className="mt-7 space-y-4" onSubmit={onSubmit}>
-              {error ? (
-                <div
-                  className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-200/90"
-                  role="alert"
-                >
-                  {error}
-                </div>
-              ) : null}
+            <form className="mt-7 space-y-4" onSubmit={onSubmit} noValidate>
+              <div>
+                <Input
+                  label="NEW PASSWORD"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (fieldErrors.password) setFieldErrors((p) => ({ ...p, password: undefined }))
+                  }}
+                  aria-label="New password"
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  minLength={8}
+                  maxLength={PASSWORD_MAX}
+                />
+                {fieldErrors.password ? (
+                  <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.password}</p>
+                ) : null}
+              </div>
 
-              <Input
-                label="NEW PASSWORD"
-                type="password"
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                aria-label="New password"
-              />
-
-              <Input
-                label="CONFIRM PASSWORD"
-                type="password"
-                autoComplete="new-password"
-                placeholder="Repeat password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                required
-                minLength={8}
-                aria-label="Confirm password"
-              />
+              <div>
+                <Input
+                  label="CONFIRM PASSWORD"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Repeat password"
+                  value={confirm}
+                  onChange={(e) => {
+                    setConfirm(e.target.value)
+                    if (fieldErrors.confirm) setFieldErrors((p) => ({ ...p, confirm: undefined }))
+                  }}
+                  aria-label="Confirm password"
+                  aria-invalid={Boolean(fieldErrors.confirm)}
+                  minLength={8}
+                  maxLength={PASSWORD_MAX}
+                />
+                {fieldErrors.confirm ? (
+                  <p className="mt-1 text-[11px] text-red-300/90">{fieldErrors.confirm}</p>
+                ) : null}
+              </div>
 
               <div className="pt-2">
                 <Button type="submit" disabled={isSubmitting}>

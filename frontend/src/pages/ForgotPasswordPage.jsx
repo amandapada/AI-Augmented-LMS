@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'react-toastify'
 import { Blob } from '../components/Brand/Blob'
 import { Wordmark } from '../components/Brand/Wordmark'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { AuthLayout } from '../layouts/AuthLayout'
 import { useAuth } from '../context/useAuth'
+import { getApiErrorMessage } from '../utils/apiErrorMessage.js'
+import { validateEmail } from '../utils/authValidation.js'
 
 function AuthSidebar({ title, description }) {
   return (
@@ -46,21 +49,29 @@ function AuthPanel({ children }) {
 export function ForgotPasswordPage() {
   const { requestPasswordReset } = useAuth()
   const [email, setEmail] = useState('')
+  const [fieldError, setFieldError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [done, setDone] = useState(false)
-  const [error, setError] = useState('')
   const [serverMessage, setServerMessage] = useState('')
 
   async function onSubmit(e) {
     e.preventDefault()
-    setError('')
+    const emailResult = validateEmail(email)
+    if (!emailResult.ok) {
+      setFieldError(emailResult.message)
+      toast.error(emailResult.message)
+      return
+    }
+    setFieldError('')
     setIsSubmitting(true)
     try {
-      const data = await requestPasswordReset(email)
-      setServerMessage(data.message || '')
+      const data = await requestPasswordReset(emailResult.email)
+      const message = typeof data?.message === 'string' ? data.message : ''
+      setServerMessage(message)
       setDone(true)
+      toast.success(message || 'If an account exists, reset instructions were sent.')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.')
+      toast.error(getApiErrorMessage(err))
     } finally {
       setIsSubmitting(false)
     }
@@ -86,26 +97,26 @@ export function ForgotPasswordPage() {
                 </p>
               </div>
 
-              <form className="mt-7 space-y-4" onSubmit={onSubmit}>
-                {error ? (
-                  <div
-                    className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-200/90"
-                    role="alert"
-                  >
-                    {error}
-                  </div>
-                ) : null}
-
-                <Input
-                  label="EMAIL ADDRESS"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="name@student.abu.edu.ng"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  aria-label="Email address"
-                />
+              <form className="mt-7 space-y-4" onSubmit={onSubmit} noValidate>
+                <div>
+                  <Input
+                    label="EMAIL ADDRESS"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="name@student.abu.edu.ng"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (fieldError) setFieldError('')
+                    }}
+                    aria-label="Email address"
+                    aria-invalid={Boolean(fieldError)}
+                    maxLength={254}
+                  />
+                  {fieldError ? (
+                    <p className="mt-1 text-[11px] text-red-300/90">{fieldError}</p>
+                  ) : null}
+                </div>
 
                 <div className="pt-2">
                   <Button type="submit" disabled={isSubmitting}>
