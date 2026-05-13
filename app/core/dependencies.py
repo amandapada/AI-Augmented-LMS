@@ -60,29 +60,17 @@ def get_db() -> Generator[Session, None, None]:
 # ``TypeError`` when resolving login and other routes.
 
 
-@lru_cache(maxsize=1)
-def _redis_client(url: str) -> redis.Redis:
-    return redis.from_url(url, decode_responses=False)
-
 
 def get_redis_client(settings: Settings = Depends(get_settings)) -> redis.Redis:
     """Return a process-wide Redis client."""
     return _redis_client(settings.UPSTASH_REDIS_URL)
 
 
-@lru_cache(maxsize=1)
-def _supabase_client(url: str, key: str) -> Client:
-    return create_client(url, key)
-
 
 def get_supabase_client(settings: Settings = Depends(get_settings)) -> Client:
     """Return a process-wide Supabase client."""
     return _supabase_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
-
-@lru_cache(maxsize=1)
-def _groq_client(api_key: str, llm_model: str, vlm_model: str) -> GroqClient:
-    return GroqClient(api_key=api_key, llm_model=llm_model, vlm_model=vlm_model)
 
 
 def get_groq_client(settings: Settings = Depends(get_settings)) -> GroqClient:
@@ -95,22 +83,10 @@ def get_groq_client(settings: Settings = Depends(get_settings)) -> GroqClient:
 # --------------------------------------------------------------------------- #
 
 
-@lru_cache(maxsize=1)
-def _password_hasher(rounds: int) -> PasswordHasher:
-    return PasswordHasher(rounds=rounds)
-
 
 def get_password_hasher(settings: Settings = Depends(get_settings)) -> PasswordHasher:
     return _password_hasher(settings.BCRYPT_ROUNDS)
 
-
-@lru_cache(maxsize=1)
-def _jwt_service(secret: str, algorithm: str, expire_minutes: int) -> JWTService:
-    return JWTService(
-        secret=secret,
-        algorithm=algorithm,
-        expire_minutes=expire_minutes,
-    )
 
 
 def get_jwt_service(settings: Settings = Depends(get_settings)) -> JWTService:

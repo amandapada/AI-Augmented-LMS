@@ -42,7 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # CORS — open during development; tighten to the deployed web origin in prod.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=["http://localhost:3000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
