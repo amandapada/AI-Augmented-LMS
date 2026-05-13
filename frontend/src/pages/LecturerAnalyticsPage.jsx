@@ -301,31 +301,22 @@ function Donut({ segments, totalLabel }) {
           stroke="rgba(255,255,255,0.06)"
           strokeWidth={stroke}
         />
-        {segments.reduce(
-          (acc, s) => {
-            const dash = (s.value / 100) * c
-            const offset = acc.offset
-            acc.elements.push(
-              <circle
-                key={s.label}
-                cx={size / 2}
-                cy={size / 2}
-                r={r}
-                fill="none"
-                stroke={s.color}
-                strokeWidth={stroke}
-                strokeLinecap="butt"
-                strokeDasharray={`${dash} ${c - dash}`}
-                strokeDashoffset={-offset}
-                transform={`rotate(-90 ${size / 2} ${size / 2})`}
-                opacity="0.95"
-              />,
-            )
-            acc.offset += dash
-            return acc
-          },
-          { offset: 0, elements: [] },
-        ).elements}
+        {arcs.map(({ s, dash, offset }) => (
+          <circle
+            key={s.label}
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={stroke}
+            strokeLinecap="butt"
+            strokeDasharray={`${dash} ${c - dash}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            opacity="0.95"
+          />
+        ))}
 
         <text
           x="50%"
