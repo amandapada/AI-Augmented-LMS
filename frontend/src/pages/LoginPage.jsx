@@ -65,7 +65,6 @@ export function LoginPage() {
     /** @type {{ email?: string; password?: string }} */ ({}),
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [loginError, setLoginError] = useState('')
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -128,14 +127,6 @@ export function LoginPage() {
                 role="status"
               >
                 Password updated successfully. Sign in with your new password.
-              </div>
-            ) : null}
-            {loginError ? (
-              <div
-                className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-100/90"
-                role="alert"
-              >
-                {loginError}
               </div>
             ) : null}
             <div className="pb-1">

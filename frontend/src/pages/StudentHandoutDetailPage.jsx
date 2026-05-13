@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { STUDENT_NAV } from '../config/studentNav'
 import { useAuth } from '../context/useAuth'
-import { apiFetch, formatApiError } from '../lib/apiClient'
+import { getDetail as fetchHandoutDetail } from '../api/handouts.js'
 
 function BackRow() {
   return (
@@ -103,100 +103,36 @@ export function StudentHandoutDetailPage() {
   const { accessToken } = useAuth()
 
   const [detail, setDetail] = useState(null)
-  const [flashcards, setFlashcards] = useState([])
-  const [quizMeta, setQuizMeta] = useState(null)
   const [loadError, setLoadError] = useState('')
-  const [busyKey, setBusyKey] = useState('')
 
   useEffect(() => {
+    if (!accessToken || !Number.isFinite(id)) return
     let cancelled = false
+    const ac = new AbortController()
 
     ;(async () => {
-      if (!accessToken || !Number.isFinite(id)) {
+      try {
         await Promise.resolve()
-        if (!cancelled) {
-          setDetail(null)
-          setFlashcards([])
-          setQuizMeta(null)
-          setLoadError('')
-        }
-        return
-      }
-
-      const { res, data } = await apiFetch(`/handouts/${id}`, { token: accessToken })
-      if (cancelled) return
-      if (!res.ok) {
-        setLoadError(formatApiError(data, res.status, res.statusText))
+        if (cancelled) return
+        setLoadError('')
+        const data = await fetchHandoutDetail(id, { accessToken, signal: ac.signal })
+        if (!cancelled) setDetail(data)
+      } catch (e) {
+        if (cancelled) return
+        if (ac.signal.aborted) return
+        setLoadError(e?.message || 'Failed to load handout.')
         setDetail(null)
-        return
       }
-      setLoadError('')
-      setDetail(data)
-
-      const fc = await apiFetch(`/handouts/${id}/flashcards`, { token: accessToken })
-      if (cancelled) return
-      if (fc.res.ok) setFlashcards(fc.data || [])
-      else setFlashcards([])
-
-      const qz = await apiFetch(`/handouts/${id}/quiz`, { token: accessToken })
-      if (cancelled) return
-      if (qz.res.ok) setQuizMeta(qz.data)
-      else setQuizMeta(null)
     })()
 
     return () => {
       cancelled = true
+      ac.abort()
     }
   }, [accessToken, id])
 
-  async function ensureFlashcardsThenGo() {
-    if (!accessToken) return
-    setBusyKey('fc')
-    try {
-      let list = flashcards
-      if (!list.length) {
-        const gen = await apiFetch(`/handouts/${id}/generate-flashcards`, {
-          method: 'POST',
-          token: accessToken,
-        })
-        if (!gen.res.ok) throw new Error(formatApiError(gen.data, gen.res.status, gen.res.statusText))
-        list = gen.data?.flashcards || []
-        setFlashcards(list)
-      }
-      if (!list.length) throw new Error('No flashcards available yet.')
-      navigate(`/student/handouts/${id}/flashcards`)
-    } catch (e) {
-      setLoadError(e?.message || 'Could not start flashcards.')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
-  async function ensureQuizThenGo() {
-    if (!accessToken) return
-    setBusyKey('qz')
-    try {
-      let meta = quizMeta
-      if (!meta?.quiz_id) {
-        const gen = await apiFetch(`/handouts/${id}/generate-quiz`, {
-          method: 'POST',
-          token: accessToken,
-        })
-        if (!gen.res.ok) throw new Error(formatApiError(gen.data, gen.res.status, gen.res.statusText))
-        meta = gen.data
-        setQuizMeta(meta)
-      }
-      if (!meta?.quiz_id) throw new Error('No quiz available.')
-      navigate(`/student/handouts/${id}/quiz/${meta.quiz_id}`)
-    } catch (e) {
-      setLoadError(e?.message || 'Could not start quiz.')
-    } finally {
-      setBusyKey('')
-    }
-  }
-
   const approved = String(detail?.status || '').toLowerCase() === 'approved'
-  const topicTags = (detail?.topics || []).map((t) => t.name).filter(Boolean)
+  const topicTags = (detail?.topics || []).map((t) => t?.name).filter(Boolean)
   const created = detail?.created_at
     ? new Date(detail.created_at).toLocaleDateString(undefined, {
         month: 'short',
@@ -205,10 +141,22 @@ export function StudentHandoutDetailPage() {
       })
     : ''
 
-  const quizCount =
-    quizMeta?.quiz?.mcq?.length != null && quizMeta?.quiz?.short_answer?.length != null
-      ? quizMeta.quiz.mcq.length + quizMeta.quiz.short_answer.length
-      : null
+  const chunks = useMemo(() => {
+    const rows = detail?.chunks
+    if (!Array.isArray(rows)) return []
+    return rows
+      .map((c) => ({
+        id: c?.id,
+        text: typeof c?.text === 'string' ? c.text : '',
+        confidence: Number(c?.confidence),
+        page_number: c?.page_number,
+      }))
+      .filter((c) => c.text)
+  }, [detail])
+
+  const hasPdf = Boolean(detail?.file_url && typeof detail.file_url === 'string')
+  const overallConfidence =
+    Number.isFinite(Number(detail?.confidence)) ? Number(detail.confidence) : null
 
   return (
     <DashboardLayout userFallbackName="Student" navItems={STUDENT_NAV}>
@@ -234,13 +182,16 @@ export function StudentHandoutDetailPage() {
                   {detail.title}
                 </h1>
                 <div className="flex flex-wrap items-center gap-3 text-[12px] text-white/50">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#3B82F6] text-[11px] font-bold text-white">
-                    IN
-                  </span>
-                  <span>Instructor</span>
-                  <span className="text-white/25">•</span>
                   <span>{created}</span>
                   <StatusBadge status={detail.status} />
+                  {overallConfidence != null ? (
+                    <>
+                      <span className="text-white/25">•</span>
+                      <span className="tabular-nums">
+                        Confidence {Math.round(overallConfidence * 100)}%
+                      </span>
+                    </>
+                  ) : null}
                 </div>
               </div>
               {topicTags.length ? (
@@ -260,70 +211,6 @@ export function StudentHandoutDetailPage() {
             <section>
               <h2 className="text-[10px] font-bold tracking-[0.2em] text-white/35">STUDY MODES</h2>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <StudyModeCard
-                  title="Flashcards"
-                  description="Master key definitions and concepts through active recall."
-                  statLine={`${flashcards.length || '—'} flashcards`}
-                  iconWrapClass="bg-[#1e2634] text-[#3B82F6]"
-                  busy={busyKey === 'fc'}
-                  disabled={!approved}
-                  onAction={ensureFlashcardsThenGo}
-                  buttonLabel="Start Session"
-                  bgIcon={
-                    <svg viewBox="0 0 24 24" fill="none" className="h-28 w-28" strokeWidth="1">
-                      <path
-                        d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
-                        stroke="currentColor"
-                      />
-                    </svg>
-                  }
-                  icon={
-                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
-                      <path
-                        d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinejoin="round"
-                      />
-                      <path d="M14 3v4h4" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                    </svg>
-                  }
-                />
-                <StudyModeCard
-                  title="Quiz"
-                  description="Test your knowledge with AI-generated multiple choice questions."
-                  statLine={`${quizCount != null ? quizCount : 7} questions`}
-                  iconWrapClass="bg-[#1e2634] text-emerald-400"
-                  busy={busyKey === 'qz'}
-                  disabled={!approved}
-                  onAction={ensureQuizThenGo}
-                  buttonLabel="Start Quiz"
-                  bgIcon={
-                    <svg viewBox="0 0 24 24" fill="none" className="h-28 w-28">
-                      <path
-                        d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"
-                        stroke="currentColor"
-                        strokeWidth="1"
-                      />
-                    </svg>
-                  }
-                  icon={
-                    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
-                      <path
-                        d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                      />
-                      <path
-                        d="M9 12l2 2 4-4"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  }
-                />
                 <StudyModeCard
                   title="AI Chat"
                   description="Ask questions and get instant explanations based on this handout."
@@ -352,12 +239,74 @@ export function StudentHandoutDetailPage() {
                     </svg>
                   }
                 />
+                <article className="rounded-2xl border border-white/8 bg-[#12141D] p-5">
+                  <div className="text-[10px] font-bold tracking-[0.2em] text-white/35">
+                    FILE
+                  </div>
+                  <p className="mt-3 text-[12px] leading-relaxed text-white/55">
+                    Open the original document (PDF/image) provided by your lecturer.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!hasPdf}
+                    onClick={() => {
+                      const url = detail?.file_url
+                      if (typeof url === 'string' && url) window.open(url, '_blank', 'noopener,noreferrer')
+                    }}
+                    className={clsx(
+                      'mt-5 inline-flex w-full items-center justify-center rounded-lg py-2.5 text-[12px] font-semibold',
+                      hasPdf
+                        ? 'bg-[#151921] text-white/80 ring-1 ring-white/8 hover:bg-[#1b2230]'
+                        : 'bg-[#0f131b] text-white/25 ring-1 ring-white/6 cursor-not-allowed',
+                    )}
+                  >
+                    Open file
+                  </button>
+                </article>
               </div>
               {!approved ? (
                 <p className="mt-3 text-[12px] text-white/40">
                   Study modes unlock when this handout is approved for students.
                 </p>
               ) : null}
+            </section>
+
+            <section className="rounded-2xl border border-white/8 bg-[#12141D] p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-[12px] font-semibold text-white/85">Extracted text chunks</h2>
+                <div className="text-[11px] text-white/45">
+                  {chunks.length ? `${chunks.length} chunk(s)` : 'No extracted text yet'}
+                </div>
+              </div>
+
+              {chunks.length ? (
+                <div className="mt-4 space-y-3">
+                  {chunks.slice(0, 6).map((c) => (
+                    <div key={c.id ?? c.text.slice(0, 24)} className="rounded-xl border border-white/8 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-3 text-[11px] text-white/45">
+                        <div className="tabular-nums">
+                          {c.page_number != null ? `Page ${c.page_number}` : '—'}
+                        </div>
+                        <div className="tabular-nums">
+                          {Number.isFinite(c.confidence) ? `Conf ${Math.round(c.confidence * 100)}%` : ''}
+                        </div>
+                      </div>
+                      <pre className="mt-2 whitespace-pre-wrap text-[12px] leading-relaxed text-white/70">
+                        {c.text}
+                      </pre>
+                    </div>
+                  ))}
+                  {chunks.length > 6 ? (
+                    <div className="text-[11px] text-white/45">
+                      Showing 6 of {chunks.length} chunks.
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-3 text-[12px] text-white/45">
+                  This handout doesn&apos;t have extracted text available yet.
+                </p>
+              )}
             </section>
           </>
         )}

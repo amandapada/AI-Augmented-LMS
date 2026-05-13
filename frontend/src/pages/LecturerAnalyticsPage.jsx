@@ -1,7 +1,9 @@
 import clsx from 'clsx'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { LECTURER_NAV } from '../config/lecturerNav'
+import { overview as fetchOverview } from '../api/analytics.js'
+import { useAuth } from '../context/useAuth'
 
 function Icon({ name, className }) {
   const common = 'h-4 w-4'
@@ -301,22 +303,31 @@ function Donut({ segments, totalLabel }) {
           stroke="rgba(255,255,255,0.06)"
           strokeWidth={stroke}
         />
-        {arcs.map(({ s, dash, offset }) => (
-          <circle
-            key={s.label}
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={stroke}
-            strokeLinecap="butt"
-            strokeDasharray={`${dash} ${c - dash}`}
-            strokeDashoffset={-offset}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            opacity="0.95"
-          />
-        ))}
+        {segments.reduce(
+          (acc, s) => {
+            const dash = (s.value / 100) * c
+            const offset = acc.offset
+            acc.elements.push(
+              <circle
+                key={s.label}
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={stroke}
+                strokeLinecap="butt"
+                strokeDasharray={`${dash} ${c - dash}`}
+                strokeDashoffset={-offset}
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                opacity="0.95"
+              />,
+            )
+            acc.offset += dash
+            return acc
+          },
+          { offset: 0, elements: [] },
+        ).elements}
 
         <text
           x="50%"
@@ -365,26 +376,108 @@ function Donut({ segments, totalLabel }) {
 
 export function LecturerAnalyticsPage() {
   const [range, setRange] = useState('Last 30 Days')
+  const { accessToken } = useAuth()
+  const [overview, setOverview] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
-  const trendLabels = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6']
-  const trendPoints = [65, 72, 68, 85, 78, 82]
+  useEffect(() => {
+    if (!accessToken) {
+      setLoadError('You are not signed in.')
+      setIsLoading(false)
+      return
+    }
 
-  const topicRows = [
-    {
-      topic: 'Data Structures',
-      avg: 42,
-      attempts: '1,240',
-      trend: 'down',
-    },
-    { topic: 'Operating Systems', avg: 58, attempts: '850', trend: 'up' },
-    { topic: 'Network Protocols', avg: 72, attempts: '920', trend: 'up' },
-  ]
+    let cancelled = false
+    setIsLoading(true)
+    setLoadError('')
 
-  const featureSegments = [
-    { label: 'Flashcards', value: 35, color: '#3B82F6' },
-    { label: 'Quizzes', value: 25, color: '#F59E0B' },
-    { label: 'AI Chat', value: 40, color: '#10B981' },
-  ]
+    ;(async () => {
+      try {
+        const data = await fetchOverview({ accessToken })
+        if (cancelled) return
+        setOverview(data)
+      } catch (e) {
+        if (cancelled) return
+        setLoadError(e?.message || 'Failed to load analytics.')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
+
+  const visibleTrends = useMemo(() => {
+    const rows = overview?.quiz_trends
+    if (!Array.isArray(rows)) return []
+    const windowSize = range === 'Last 7 Days' ? 7 : 30
+    return rows.slice(-windowSize)
+  }, [overview, range])
+
+  const trendLabels = useMemo(() => {
+    if (visibleTrends.length === 0) return []
+    return visibleTrends.map((p) => String(p.day))
+  }, [visibleTrends])
+
+  const trendPoints = useMemo(() => {
+    if (visibleTrends.length === 0) return []
+    return visibleTrends.map((p) => {
+      const v = Number(p.avg_score)
+      if (!Number.isFinite(v)) return 0
+      return Math.max(0, Math.min(100, v))
+    })
+  }, [visibleTrends])
+
+  const topicRows = useMemo(() => {
+    const rows = overview?.weakest_topics
+    if (!Array.isArray(rows) || rows.length === 0) return []
+    return rows.slice(0, 10).map((r) => {
+      const avg = Number(r.avg_score)
+      const attempts = Number(r.attempts)
+      return {
+        topic: String(r.topic || 'Unknown'),
+        avg: Number.isFinite(avg) ? Math.round(avg) : 0,
+        attempts: Number.isFinite(attempts) ? attempts.toLocaleString() : '0',
+        trend: avg >= 60 ? 'up' : 'down',
+      }
+    })
+  }, [overview])
+
+  const featureSegments = useMemo(() => {
+    const usage = overview?.feature_usage
+    if (!usage || typeof usage !== 'object') return []
+    const flashcards = Number(usage.flashcards) || 0
+    const quizzes = Number(usage.quizzes) || 0
+    const chats = Number(usage.chats) || 0
+    const total = Math.max(1, flashcards + quizzes + chats)
+    const pct = (v) => Math.round((v / total) * 100)
+    return [
+      { label: 'Flashcards', value: pct(flashcards), color: '#3B82F6' },
+      { label: 'Quizzes', value: pct(quizzes), color: '#F59E0B' },
+      { label: 'AI Chat', value: pct(chats), color: '#10B981' },
+    ]
+  }, [overview])
+
+  const totalEvents = useMemo(() => {
+    const usage = overview?.feature_usage
+    if (!usage || typeof usage !== 'object') return 0
+    const flashcards = Number(usage.flashcards) || 0
+    const quizzes = Number(usage.quizzes) || 0
+    const chats = Number(usage.chats) || 0
+    return flashcards + quizzes + chats
+  }, [overview])
+
+  const totalEventsLabel = useMemo(() => {
+    const usage = overview?.feature_usage
+    if (!usage || typeof usage !== 'object') return '0'
+    const flashcards = Number(usage.flashcards) || 0
+    const quizzes = Number(usage.quizzes) || 0
+    const chats = Number(usage.chats) || 0
+    return (flashcards + quizzes + chats).toLocaleString()
+  }, [overview])
 
   function onExportCsv() {
     const rows = [
@@ -438,8 +531,20 @@ export function LecturerAnalyticsPage() {
           </div>
         </header>
 
+        {loadError ? (
+          <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-[12px] text-red-100/90">
+            {loadError}
+          </div>
+        ) : null}
+
         <Card title="Quiz Score Trends">
-          <LineChart points={trendPoints} labels={trendLabels} />
+          {isLoading ? (
+            <div className="text-[12px] text-white/55">Loading…</div>
+          ) : trendPoints.length ? (
+            <LineChart points={trendPoints} labels={trendLabels} />
+          ) : (
+            <div className="text-[12px] text-white/55">No quiz trend data yet.</div>
+          )}
         </Card>
 
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -451,46 +556,60 @@ export function LecturerAnalyticsPage() {
               <div className="text-right">Trend</div>
             </div>
 
-            <div className="divide-y divide-white/6">
-              {topicRows.map((r) => (
-                <div
-                  key={r.topic}
-                  className="grid grid-cols-[1fr_110px_110px_70px] items-center gap-2 py-4 text-[12px]"
-                >
-                  <div className="text-white/75">{r.topic}</div>
+            {isLoading ? (
+              <div className="text-[12px] text-white/55">Loading…</div>
+            ) : topicRows.length ? (
+              <div className="divide-y divide-white/6">
+                {topicRows.map((r) => (
                   <div
-                    className={clsx(
-                      'text-center font-semibold tabular-nums',
-                      r.avg < 50
-                        ? 'text-[#EF4444]'
-                        : r.avg >= 70
-                          ? 'text-[#10B981]'
-                          : 'text-white/80',
-                    )}
+                    key={r.topic}
+                    className="grid grid-cols-[1fr_110px_110px_70px] items-center gap-2 py-4 text-[12px]"
                   >
-                    {r.avg}%
-                  </div>
-                  <div className="text-center tabular-nums text-white/55">
-                    {r.attempts}
-                  </div>
-                  <div className="flex justify-end">
-                    <span
+                    <div className="text-white/75">{r.topic}</div>
+                    <div
                       className={clsx(
-                        'inline-flex items-center justify-center',
-                        r.trend === 'up' ? 'text-[#10B981]' : 'text-[#EF4444]',
+                        'text-center font-semibold tabular-nums',
+                        r.avg < 50
+                          ? 'text-[#EF4444]'
+                          : r.avg >= 70
+                            ? 'text-[#10B981]'
+                            : 'text-white/80',
                       )}
-                      title={r.trend === 'up' ? 'Improving' : 'Declining'}
                     >
-                      <Icon name={r.trend === 'up' ? 'trend-up' : 'trend-down'} />
-                    </span>
+                      {r.avg}%
+                    </div>
+                    <div className="text-center tabular-nums text-white/55">
+                      {r.attempts}
+                    </div>
+                    <div className="flex justify-end">
+                      <span
+                        className={clsx(
+                          'inline-flex items-center justify-center',
+                          r.trend === 'up' ? 'text-[#10B981]' : 'text-[#EF4444]',
+                        )}
+                        title={r.trend === 'up' ? 'Improving' : 'Declining'}
+                      >
+                        <Icon name={r.trend === 'up' ? 'trend-up' : 'trend-down'} />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[12px] text-white/55">No topic performance data yet.</div>
+            )}
           </Card>
 
           <Card title="Feature Usage">
-            <Donut segments={featureSegments} totalLabel="17.6k" />
+            {isLoading ? (
+              <div className="text-[12px] text-white/55">Loading…</div>
+            ) : totalEvents > 0 ? (
+              <Donut segments={featureSegments} totalLabel={totalEventsLabel} />
+            ) : (
+              <div className="text-[12px] text-white/55">
+                No activity yet.
+              </div>
+            )}
           </Card>
         </section>
       </div>

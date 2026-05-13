@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { LECTURER_NAV } from '../config/lecturerNav'
-import { getApiV1Base } from '../lib/apiBase'
 import { useAuth } from '../context/useAuth'
+import { getStatus, upload as uploadHandout } from '../api/handouts.js'
 
 const HANDOUT_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png'
 
@@ -159,13 +159,14 @@ export function LecturerUploadPage() {
   const navigate = useNavigate()
   const { accessToken } = useAuth()
   const inputRef = useRef(null)
+  const uploadAbortRef = useRef(null)
 
   const [dragOver, setDragOver] = useState(false)
   const [file, setFile] = useState(null)
-  const [progress, setProgress] = useState(0)
   const [handoutId, setHandoutId] = useState(null)
   const [phase, setPhase] = useState('idle') // idle | uploading | processing | ready | error
   const [error, setError] = useState('')
+  const [autoPoll, setAutoPoll] = useState(true)
 
   const meta = useMemo(() => {
     if (!file) return null
@@ -182,51 +183,37 @@ export function LecturerUploadPage() {
   function acceptAndUpload(nextFile) {
     setError('')
     setHandoutId(null)
-    setProgress(0)
     setFile(nextFile)
     setPhase('uploading')
+    setAutoPoll(true)
 
-    const form = new FormData()
-    form.append('file', nextFile)
-
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${getApiV1Base()}/handouts/upload`)
-    if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
-
-    xhr.upload.onprogress = (evt) => {
-      if (!evt.lengthComputable) return
-      const pct = Math.min(100, Math.round((evt.loaded / evt.total) * 100))
-      setProgress(pct)
+    if (!accessToken) {
+      setError('You are not signed in.')
+      setPhase('error')
+      return
     }
 
-    xhr.onload = () => {
+    if (uploadAbortRef.current) {
+      uploadAbortRef.current.abort()
+    }
+    const ac = new AbortController()
+    uploadAbortRef.current = ac
+
+    ;(async () => {
       try {
-        if (xhr.status < 200 || xhr.status >= 300) {
-          const msg = xhr.responseText || `Upload failed (${xhr.status})`
-          setError(msg)
-          setPhase('error')
-          return
+        const res = await uploadHandout(nextFile, { accessToken, signal: ac.signal })
+        const id = Number(res?.id)
+        if (!Number.isFinite(id)) {
+          throw new Error('Upload succeeded but no handout id returned.')
         }
-        const json = JSON.parse(xhr.responseText || '{}')
-        if (!json?.id) {
-          setError('Upload succeeded but no handout id returned.')
-          setPhase('error')
-          return
-        }
-        setHandoutId(json.id)
+        setHandoutId(id)
         setPhase('processing')
       } catch (e) {
-        setError(String(e?.message || e))
+        if (ac.signal.aborted) return
+        setError(e?.message || 'Upload failed.')
         setPhase('error')
       }
-    }
-
-    xhr.onerror = () => {
-      setError('Network error while uploading.')
-      setPhase('error')
-    }
-
-    xhr.send(form)
+    })()
   }
 
   function onFiles(files) {
@@ -256,18 +243,16 @@ export function LecturerUploadPage() {
   useEffect(() => {
     if (!handoutId) return
     if (phase !== 'processing') return
+    if (!autoPoll) return
 
     let cancelled = false
-    let timeoutId
     const startedAt = Date.now()
+    const ac = new AbortController()
 
     async function tick() {
       try {
-        const res = await fetch(`${getApiV1Base()}/handouts/${handoutId}/status`, {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        })
-        if (!res.ok) throw new Error(`Status check failed (${res.status})`)
-        const data = await res.json()
+        if (!accessToken) throw new Error('You are not signed in.')
+        const data = await getStatus(handoutId, { accessToken, signal: ac.signal })
         const status = String(data?.status || '').toUpperCase()
 
         if (cancelled) return
@@ -283,27 +268,48 @@ export function LecturerUploadPage() {
           return
         }
 
+        // Current backend behavior can stay in "uploaded" for a long time.
+        // Treat it as UI-ready so the user can move on, but still allow a manual re-check.
+        if (status === 'UPLOADED') {
+          setAutoPoll(false)
+          setPhase('ready')
+          return
+        }
+
         setPhase('processing')
-      } catch {
+      } catch (e) {
         if (cancelled) return
+        if (ac.signal.aborted) return
+        // Keep polling through transient errors, but surface a hint after some time.
+        if (Date.now() - startedAt > 15000) {
+          setError(e?.message || 'Having trouble checking status. Retrying…')
+        }
       }
 
       if (cancelled) return
       if (Date.now() - startedAt > 2 * 60 * 1000) return
-      timeoutId = window.setTimeout(() => {
-        void tick()
-      }, 2000)
+      window.setTimeout(() => void tick(), 2000)
     }
 
     void tick()
     return () => {
       cancelled = true
-      window.clearTimeout(timeoutId)
+      ac.abort()
     }
-  }, [handoutId, phase, accessToken])
+  }, [handoutId, phase, accessToken, autoPoll])
 
-  const uploadedState = phase === 'processing' || phase === 'ready' ? 'done' : phase === 'uploading' ? 'active' : 'idle'
-  const processingState = phase === 'processing' ? 'active' : phase === 'ready' ? 'done' : 'idle'
+  const uploadedState =
+    phase === 'processing' || phase === 'ready'
+      ? 'done'
+      : phase === 'uploading'
+        ? 'active'
+        : 'idle'
+  const processingState =
+    phase === 'processing' && autoPoll
+      ? 'active'
+      : phase === 'ready'
+        ? 'done'
+        : 'idle'
   const readyState = phase === 'ready' ? 'done' : 'idle'
 
   const showFileRow = Boolean(file)
@@ -401,8 +407,9 @@ export function LecturerUploadPage() {
                 </div>
                 <div className="mt-0.5 text-[11px] text-white/45">
                   {meta?.size}
-                  {phase === 'uploading' ? ` • ${progress}% uploaded` : null}
-                  {phase === 'processing' ? ' • processing' : null}
+                  {phase === 'uploading' ? ' • uploading' : null}
+                  {phase === 'processing' && autoPoll ? ' • processing' : null}
+                  {phase === 'processing' && !autoPoll ? ' • uploaded (queued)' : null}
                   {phase === 'ready' ? ' • ready' : null}
                 </div>
                 <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-white/6">
@@ -411,12 +418,22 @@ export function LecturerUploadPage() {
                       'h-1 rounded-full',
                       phase === 'ready' ? 'bg-[#10B981]' : 'bg-[#3B82F6]',
                     )}
-                    style={{ width: `${phase === 'uploading' ? progress : 100}%` }}
+                    style={{ width: `${phase === 'ready' ? 100 : phase === 'idle' ? 0 : 100}%` }}
                   />
                 </div>
               </div>
             </div>
           </div>
+        ) : null}
+
+        {phase === 'processing' && !autoPoll ? (
+          <button
+            type="button"
+            onClick={() => setAutoPoll(true)}
+            className="mt-4 inline-flex h-10 w-full max-w-2xl items-center justify-center rounded-lg bg-[#151921] text-[12px] font-semibold text-white/80 ring-1 ring-white/8 transition hover:bg-[#1b2230] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+          >
+            Check status
+          </button>
         ) : null}
 
         <button
@@ -431,9 +448,22 @@ export function LecturerUploadPage() {
               : 'bg-[#0f131b] text-white/25 ring-1 ring-white/6 cursor-not-allowed',
           )}
         >
-          Review & Approve
+          Back to Dashboard
           <Icon name="arrow" className="h-4 w-4" />
         </button>
+
+        {phase === 'ready' && !autoPoll && handoutId ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPhase('processing')
+              setAutoPoll(true)
+            }}
+            className="mt-3 inline-flex h-10 w-full max-w-2xl items-center justify-center rounded-lg bg-[#0f131b] text-[12px] font-semibold text-white/65 ring-1 ring-white/6 transition hover:bg-[#141a24] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+          >
+            Re-check processing status
+          </button>
+        ) : null}
       </div>
     </DashboardLayout>
   )

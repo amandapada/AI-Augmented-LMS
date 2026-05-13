@@ -14,6 +14,14 @@ export function generate(handoutId, ctx) {
   });
 }
 
+/** @param {number} handoutId @param {RequestContext & { accessToken: string }} ctx */
+export function latestForHandout(handoutId, ctx) {
+  return request("GET", paths.quizzes.latestForHandout(handoutId), {
+    accessToken: ctx.accessToken,
+    signal: ctx.signal,
+  });
+}
+
 /** @param {number} quizId @param {RequestContext & { accessToken: string }} ctx */
 export function get(quizId, ctx) {
   return request("GET", paths.quizzes.get(quizId), {

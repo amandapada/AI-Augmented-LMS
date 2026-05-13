@@ -33,6 +33,7 @@ export const paths = {
 
   quizzes: {
     generate: (handoutId) => v1(`handouts/${handoutId}/generate-quiz`),
+    latestForHandout: (handoutId) => v1(`handouts/${handoutId}/quiz`),
     get: (quizId) => v1(`quizzes/${quizId}`),
     submit: (quizId) => v1(`quizzes/${quizId}/submit`),
     myAttempts: v1("quizzes/attempts/me"),

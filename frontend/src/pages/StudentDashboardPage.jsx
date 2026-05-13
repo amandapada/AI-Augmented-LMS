@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { STUDENT_NAV } from '../config/studentNav'
 import { useAuth } from '../context/useAuth'
-import { apiFetch, formatApiError } from '../lib/apiClient'
+import { list as listHandouts } from '../api/handouts.js'
 
 function Icon({ name, className }) {
   const common = 'h-4 w-4'
@@ -315,35 +315,42 @@ export function StudentDashboardPage() {
   const [listError, setListError] = useState('')
 
   useEffect(() => {
+    if (!accessToken) return
     let cancelled = false
+    const ac = new AbortController()
 
     ;(async () => {
-      if (!accessToken) {
+      try {
         await Promise.resolve()
-        if (!cancelled) {
-          setHandouts([])
-          setListError('')
-        }
-        return
-      }
-
-      const { res, data } = await apiFetch('/handouts', { token: accessToken })
-      if (cancelled) return
-
-      if (!res.ok) {
-        setListError(formatApiError(data, res.status, res.statusText))
+        if (cancelled) return
+        setListError('')
+        const data = await listHandouts({ accessToken, signal: ac.signal })
+        if (cancelled) return
+        setHandouts(Array.isArray(data) ? data : [])
+      } catch (e) {
+        if (cancelled) return
+        if (ac.signal.aborted) return
+        setListError(e?.message || 'Failed to load handouts.')
         setHandouts([])
-        return
       }
-
-      setListError('')
-      setHandouts(Array.isArray(data) ? data : [])
     })()
 
     return () => {
       cancelled = true
+      ac.abort()
     }
   }, [accessToken])
+
+  const stats = useMemo(() => {
+    const approved = handouts.filter((h) => String(h?.status || '').toLowerCase() === 'approved')
+    const totalHandouts = handouts.length
+    const availableHandouts = approved.length
+
+    return {
+      totalHandouts,
+      availableHandouts,
+    }
+  }, [handouts])
 
   return (
     <DashboardLayout
@@ -366,8 +373,7 @@ export function StudentDashboardPage() {
               Good morning, {name}
             </h1>
             <p className="mt-2 text-[12px] leading-relaxed text-white/55">
-              You&apos;ve reached 85% of your study goal this week. Ready to
-              tackle Signal Processing today?
+              Pick a handout to start an AI chat and get instant explanations.
             </p>
 
             <div className="mt-5">
@@ -434,24 +440,24 @@ export function StudentDashboardPage() {
 
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <StatCard
-              label="CARDS TODAY"
-              value="42"
-              suffix="/ 50"
+              label="HANDOUTS"
+              value={String(stats.availableHandouts)}
+              suffix={`/ ${stats.totalHandouts}`}
               icon={<Icon name="layers" />}
               accent="blue"
             />
             <StatCard
-              label="QUIZZES"
-              value="3"
-              suffix="completed"
-              icon={<Icon name="check" />}
+              label="AI CHAT"
+              value="Available"
+              suffix=""
+              icon={<Icon name="message" />}
               accent="green"
             />
             <StatCard
-              label="STUDY STREAK"
-              value="12"
-              suffix="Days"
-              icon={<Icon name="flame" />}
+              label="STATUS"
+              value={handouts.length ? 'Synced' : '—'}
+              suffix=""
+              icon={<Icon name="clock" />}
               accent="orange"
             />
           </div>

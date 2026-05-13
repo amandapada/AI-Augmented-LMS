@@ -6,7 +6,7 @@
  *   to the FastAPI server (avoids cross-origin "Failed to fetch" during local dev).
  */
 export function getApiV1Base() {
-  const raw = import.meta.env.VITE_API_URL
+  const raw = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
   if (raw != null && String(raw).trim() !== '') {
     const trimmed = String(raw).replace(/\/$/, '')
     if (trimmed.endsWith('/api/v1')) return trimmed

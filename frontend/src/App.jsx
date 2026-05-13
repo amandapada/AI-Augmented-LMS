@@ -13,6 +13,8 @@ import { StudentQuizPage } from './pages/StudentQuizPage'
 import { LecturerDashboardPage } from './pages/LecturerDashboardPage'
 import { LecturerUploadPage } from './pages/LecturerUploadPage'
 import { LecturerAnalyticsPage } from './pages/LecturerAnalyticsPage'
+import { LecturerHandoutFlashcardsPage } from './pages/LecturerHandoutFlashcardsPage'
+import { LecturerHandoutQuizPage } from './pages/LecturerHandoutQuizPage'
 import { ProtectedRoute } from './components/routing/ProtectedRoute'
 
 export default function App() {
@@ -100,6 +102,22 @@ export default function App() {
         element={
           <ProtectedRoute allowRole="lecturer">
             <LecturerAnalyticsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lecturer/handouts/:handoutId/flashcards"
+        element={
+          <ProtectedRoute allowRole="lecturer">
+            <LecturerHandoutFlashcardsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lecturer/handouts/:handoutId/quiz"
+        element={
+          <ProtectedRoute allowRole="lecturer">
+            <LecturerHandoutQuizPage />
           </ProtectedRoute>
         }
       />
