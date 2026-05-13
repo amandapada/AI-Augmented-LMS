@@ -56,19 +56,19 @@ def get_db() -> Generator[Session, None, None]:
 # --------------------------------------------------------------------------- #
 
 
-@lru_cache(maxsize=1)
+
 def get_redis_client(settings: Settings = Depends(get_settings)) -> redis.Redis:
     """Return a process-wide Redis client."""
     return redis.from_url(settings.UPSTASH_REDIS_URL, decode_responses=False)
 
 
-@lru_cache(maxsize=1)
+
 def get_supabase_client(settings: Settings = Depends(get_settings)) -> Client:
     """Return a process-wide Supabase client."""
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 
 
-@lru_cache(maxsize=1)
+
 def get_groq_client(settings: Settings = Depends(get_settings)) -> GroqClient:
     """Return a process-wide Groq client wrapper."""
     return GroqClient(
@@ -83,12 +83,12 @@ def get_groq_client(settings: Settings = Depends(get_settings)) -> GroqClient:
 # --------------------------------------------------------------------------- #
 
 
-@lru_cache(maxsize=1)
+
 def get_password_hasher(settings: Settings = Depends(get_settings)) -> PasswordHasher:
     return build_password_hasher(settings)
 
 
-@lru_cache(maxsize=1)
+
 def get_jwt_service(settings: Settings = Depends(get_settings)) -> JWTService:
     return build_jwt_service(settings)
 
