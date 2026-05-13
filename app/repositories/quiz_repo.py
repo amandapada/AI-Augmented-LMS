@@ -15,6 +15,14 @@ class QuizRepository(BaseRepository[Quiz]):
     def list_for_handout(self, handout_id: int) -> List[Quiz]:
         return self.db.query(Quiz).filter(Quiz.handout_id == handout_id).all()
 
+    def latest_for_handout(self, handout_id: int) -> Quiz | None:
+        return (
+            self.db.query(Quiz)
+            .filter(Quiz.handout_id == handout_id)
+            .order_by(Quiz.id.desc())
+            .first()
+        )
+
 
 class QuizAttemptRepository(BaseRepository[QuizAttempt]):
     model = QuizAttempt

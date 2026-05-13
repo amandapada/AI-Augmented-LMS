@@ -6,8 +6,9 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import get_current_user, get_quiz_service, require_role
-from app.models.user import User, UserRole
+from app.core.dependencies import get_current_user, get_quiz_service
+from app.core.exceptions import NotFoundError
+from app.models.user import User
 from app.schemas.study import (
     QuizAttemptResult,
     QuizAttemptSummary,
@@ -27,10 +28,26 @@ router = APIRouter(tags=["quizzes"])
 def generate(
     handout_id: int,
     service: QuizService = Depends(get_quiz_service),
-    _user: User = Depends(require_role(UserRole.LECTURER, UserRole.ADMIN)),
+    _user: User = Depends(get_current_user),
 ):
     """Generate a 5 MCQ + 2 short-answer quiz (QZ-1)."""
     quiz = service.generate_for_handout(handout_id)
+    return QuizGenerateResponse(quiz_id=quiz.id, quiz=service.get_payload(quiz.id))
+
+
+@router.get(
+    "/handouts/{handout_id}/quiz",
+    response_model=QuizGenerateResponse,
+)
+def get_latest_quiz_for_handout(
+    handout_id: int,
+    service: QuizService = Depends(get_quiz_service),
+    _user: User = Depends(get_current_user),
+):
+    """Return the most recently generated quiz for this handout, if any."""
+    quiz = service.get_latest_for_handout(handout_id)
+    if quiz is None:
+        raise NotFoundError("No quiz exists for this handout yet.")
     return QuizGenerateResponse(quiz_id=quiz.id, quiz=service.get_payload(quiz.id))
 
 

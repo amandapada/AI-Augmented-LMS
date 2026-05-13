@@ -53,14 +53,24 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
 
   async function onSubmit(e) {
     e.preventDefault()
+    setLoginError('')
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      setLoginError('Please enter your email address (include @ and your domain).')
+      return
+    }
     setIsSubmitting(true)
     try {
-      await signIn({ email, role })
-      if (role === 'student') navigate('/student', { replace: true })
-      else navigate('/lecturer', { replace: true })
+      const session = await signIn({ email: trimmedEmail, password })
+      const r = session?.role
+      if (r === 'lecturer' || r === 'admin') navigate('/lecturer', { replace: true })
+      else navigate('/student', { replace: true })
+    } catch (err) {
+      setLoginError(err?.message || 'Sign in failed.')
     } finally {
       setIsSubmitting(false)
     }
@@ -91,6 +101,14 @@ export function LoginPage() {
                 role="status"
               >
                 Password updated successfully. Sign in with your new password.
+              </div>
+            ) : null}
+            {loginError ? (
+              <div
+                className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-100/90"
+                role="alert"
+              >
+                {loginError}
               </div>
             ) : null}
             <div className="pb-1">

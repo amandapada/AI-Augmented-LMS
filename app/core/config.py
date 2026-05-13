@@ -16,11 +16,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Typed view of the ``.env`` file.
+    """Typed view of the ``.env`` file and process environment.
 
-    Pydantic validates types and raises at startup if a required var is missing,
-    which is a deliberate fail-fast: we'd rather the process crash on boot than
-    hit a ``NoneType`` error deep inside a request handler.
+    Required secrets have **development defaults** so the API can import without a
+    ``.env`` file. Override every default in production and for any shared
+    database, Redis, Supabase, or Groq usage.
     """
 
     # ---- Core app ----
@@ -30,20 +30,29 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
 
     # ---- Security / auth ----
-    SECRET_KEY: str
+    # Defaults are for local boot only; set SECRET_KEY (and other secrets) in .env for any shared or prod environment.
+    SECRET_KEY: str = Field(
+        default="dev-only-secret-key-change-in-env-for-non-local-use-min-32-chars",
+    )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day; refresh tokens are post-MVP
     BCRYPT_ROUNDS: int = 12  # SEC-1 requires cost >= 12
 
     # ---- Infrastructure ----
-    DATABASE_URL: str
-    UPSTASH_REDIS_URL: str
-    SUPABASE_URL: str
-    SUPABASE_KEY: str
+    # Placeholder URLs let `uvicorn` import the app without a .env; point DATABASE_URL at a real Postgres for auth/CRUD.
+    DATABASE_URL: str = Field(
+        default=(
+            "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/postgres"
+            "?sslmode=disable"
+        ),
+    )
+    UPSTASH_REDIS_URL: str = Field(default="redis://127.0.0.1:6379/0")
+    SUPABASE_URL: str = Field(default="https://127.0.0.1")
+    SUPABASE_KEY: str = Field(default="dev-supabase-key-placeholder")
     SUPABASE_BUCKET: str = "handouts"
 
     # ---- AI providers ----
-    GROQ_API_KEY: str
+    GROQ_API_KEY: str = Field(default="dev-groq-key-placeholder")
     GROQ_VLM_MODEL: str = "llama-3.2-90b-vision-preview"
     GROQ_LLM_MODEL: str = "llama-3.3-70b-versatile"
 
@@ -63,7 +72,17 @@ class Settings(BaseSettings):
     ANALYTICS_CACHE_SECONDS: int = 3600  # SCAL-2 — refresh every hour
 
     # ---- CORS ----
-    CORS_ORIGINS: List[str] = ["*"]
+    # Wildcard + allow_credentials is invalid for browsers; list dev origins explicitly.
+    CORS_ORIGINS: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

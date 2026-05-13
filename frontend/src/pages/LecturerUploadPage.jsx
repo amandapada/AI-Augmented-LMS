@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { LECTURER_NAV } from '../config/lecturerNav'
+import { getApiV1Base } from '../lib/apiBase'
+import { useAuth } from '../context/useAuth'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 const HANDOUT_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png'
 
 function formatBytes(bytes) {
@@ -156,6 +157,7 @@ function Step({ label, state }) {
 
 export function LecturerUploadPage() {
   const navigate = useNavigate()
+  const { accessToken } = useAuth()
   const inputRef = useRef(null)
 
   const [dragOver, setDragOver] = useState(false)
@@ -188,7 +190,8 @@ export function LecturerUploadPage() {
     form.append('file', nextFile)
 
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${API_BASE}/handouts/upload`)
+    xhr.open('POST', `${getApiV1Base()}/handouts/upload`)
+    if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
 
     xhr.upload.onprogress = (evt) => {
       if (!evt.lengthComputable) return
@@ -255,39 +258,49 @@ export function LecturerUploadPage() {
     if (phase !== 'processing') return
 
     let cancelled = false
+    let timeoutId
     const startedAt = Date.now()
 
     async function tick() {
       try {
-        const res = await fetch(`${API_BASE}/handouts/${handoutId}/status`)
+        const res = await fetch(`${getApiV1Base()}/handouts/${handoutId}/status`, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        })
         if (!res.ok) throw new Error(`Status check failed (${res.status})`)
         const data = await res.json()
         const status = String(data?.status || '').toUpperCase()
 
         if (cancelled) return
 
-        if (status === 'READY') {
+        if (status === 'FAILED') {
+          setError(data?.error_message || 'Processing failed.')
+          setPhase('error')
+          return
+        }
+
+        if (status === 'READY' || status === 'APPROVED') {
           setPhase('ready')
           return
         }
 
-        // Keep waiting; backend may return UPLOADED/PROCESSING/READY
         setPhase('processing')
       } catch {
         if (cancelled) return
-        // don't fail the whole UI on transient polling errors
       }
 
       if (cancelled) return
       if (Date.now() - startedAt > 2 * 60 * 1000) return
-      setTimeout(tick, 2000)
+      timeoutId = window.setTimeout(() => {
+        void tick()
+      }, 2000)
     }
 
-    tick()
+    void tick()
     return () => {
       cancelled = true
+      window.clearTimeout(timeoutId)
     }
-  }, [handoutId, phase])
+  }, [handoutId, phase, accessToken])
 
   const uploadedState = phase === 'processing' || phase === 'ready' ? 'done' : phase === 'uploading' ? 'active' : 'idle'
   const processingState = phase === 'processing' ? 'active' : phase === 'ready' ? 'done' : 'idle'
@@ -320,7 +333,10 @@ export function LecturerUploadPage() {
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') pickFile()
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                pickFile()
+              }
             }}
             onClick={pickFile}
             onDragEnter={(e) => {
@@ -415,7 +431,7 @@ export function LecturerUploadPage() {
               : 'bg-[#0f131b] text-white/25 ring-1 ring-white/6 cursor-not-allowed',
           )}
         >
-          Review &amp; Approve
+          Review & Approve
           <Icon name="arrow" className="h-4 w-4" />
         </button>
       </div>

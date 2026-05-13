@@ -1,7 +1,10 @@
 import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { DashboardLayout } from '../layouts/DashboardLayout'
 import { STUDENT_NAV } from '../config/studentNav'
 import { useAuth } from '../context/useAuth'
+import { apiFetch, formatApiError } from '../lib/apiClient'
 
 function Icon({ name, className }) {
   const common = 'h-4 w-4'
@@ -225,63 +228,48 @@ function IconButton({ label, children, className }) {
   )
 }
 
-function Tag({ children }) {
+function HandoutLinkCard({ id, title, createdAt, status }) {
+  let date = null
+  if (createdAt) {
+    const d = new Date(createdAt)
+    if (!Number.isNaN(d.getTime())) {
+      date = d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    }
+  }
+  const st = String(status || '').toLowerCase()
   return (
-    <span className="rounded-md border border-white/5 bg-white/2 px-2 py-0.5 text-[9px] font-semibold tracking-[0.16em] text-white/45">
-      {children}
-    </span>
-  )
-}
-
-function Metric({ icon, value }) {
-  return (
-    <div className="flex items-center gap-2 text-[11px] text-white/55">
-      <span className="text-white/45">{icon}</span>
-      <span className="tabular-nums">{value}</span>
-    </div>
-  )
-}
-
-function MaterialCard({ date, title, tags, metrics }) {
-  return (
-    <article className="group relative overflow-hidden rounded-2xl border border-white/5 bg-white/2 p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)]">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100"
-        aria-hidden="true"
-      >
-        <div className="absolute -top-16 -right-16 h-44 w-44 rounded-full bg-[#3B82F6]/10 blur-3xl" />
-        <div className="absolute -bottom-16 -left-16 h-44 w-44 rounded-full bg-indigo-500/10 blur-3xl" />
-      </div>
-
-      <div className="relative flex items-start justify-between gap-4">
+    <Link
+      to={`/student/handouts/${id}`}
+      className="group block rounded-2xl border border-white/5 bg-white/2 p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)] transition hover:border-[#3B82F6]/25 hover:bg-white/4"
+    >
+      <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[10px] font-semibold tracking-[0.18em] text-white/35">
-            {date}
+            {date ? date.toUpperCase() : '—'}
           </div>
-          <h3 className="mt-3 text-[15px] font-semibold tracking-tight text-white/90">
+          <h3 className="mt-3 text-[15px] font-semibold tracking-tight text-white/90 group-hover:text-white">
             {title}
           </h3>
         </div>
-
-        <IconButton label="Share" className="opacity-70 group-hover:opacity-100">
-          <Icon name="share" />
-        </IconButton>
+        <span
+          className={clsx(
+            'shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-[0.12em]',
+            st === 'approved'
+              ? 'border-emerald-500/35 text-emerald-300/90'
+              : 'border-white/10 text-white/40',
+          )}
+        >
+          {st.toUpperCase()}
+        </span>
       </div>
-
-      <div className="relative mt-4 flex flex-wrap gap-2">
-        {tags.map((t) => (
-          <Tag key={t}>{t}</Tag>
-        ))}
+      <div className="mt-5 border-t border-white/5 pt-4 text-[11px] font-medium text-[#3B82F6]/80 group-hover:text-[#3B82F6]">
+        Open handout →
       </div>
-
-      <div className="relative mt-5 border-t border-white/5 pt-4">
-        <div className="flex items-center gap-6">
-          {metrics.map((m) => (
-            <Metric key={m.label} icon={m.icon} value={m.value} />
-          ))}
-        </div>
-      </div>
-    </article>
+    </Link>
   )
 }
 
@@ -321,8 +309,41 @@ function StatCard({ label, value, suffix, icon, accent = 'blue' }) {
 }
 
 export function StudentDashboardPage() {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
   const name = user?.name || 'Student'
+  const [handouts, setHandouts] = useState([])
+  const [listError, setListError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    ;(async () => {
+      if (!accessToken) {
+        await Promise.resolve()
+        if (!cancelled) {
+          setHandouts([])
+          setListError('')
+        }
+        return
+      }
+
+      const { res, data } = await apiFetch('/handouts', { token: accessToken })
+      if (cancelled) return
+
+      if (!res.ok) {
+        setListError(formatApiError(data, res.status, res.statusText))
+        setHandouts([])
+        return
+      }
+
+      setListError('')
+      setHandouts(Array.isArray(data) ? data : [])
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
 
   return (
     <DashboardLayout
@@ -350,21 +371,26 @@ export function StudentDashboardPage() {
             </p>
 
             <div className="mt-5">
-              <button
-                type="button"
+              <Link
+                to={
+                  handouts.length
+                    ? `/student/handouts/${handouts[0].id}`
+                    : '/student#study-materials'
+                }
                 className={clsx(
                   'inline-flex h-10 items-center gap-2 rounded-lg bg-[#3B82F6] px-4 text-[12px] font-semibold text-white',
                   'shadow-[0_14px_40px_-18px_rgba(59,130,246,0.8)] transition hover:bg-[#3276EA]',
                   'focus:outline-none focus:ring-4 focus:ring-sky-500/10',
                 )}
               >
-                Continue Last Session <Icon name="arrow" className="h-4 w-4" />
-              </button>
+                {handouts.length ? 'Open a handout' : 'View study materials'}{' '}
+                <Icon name="arrow" className="h-4 w-4" />
+              </Link>
             </div>
           </div>
         </section>
 
-        <section>
+        <section id="study-materials" className="scroll-mt-8">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
               Your Study Materials
@@ -382,37 +408,28 @@ export function StudentDashboardPage() {
             </div>
           </div>
 
+          {listError ? (
+            <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100/90">
+              {listError}
+            </div>
+          ) : null}
+
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <MaterialCard
-              date="OCT 24, 2024"
-              title="Intro to Signal Processing"
-              tags={['SIGNALS', 'NYQUIST']}
-              metrics={[
-                { label: 'cards', value: '12', icon: <Icon name="layers" /> },
-                { label: 'minutes', value: '8', icon: <Icon name="clock" /> },
-                { label: 'chats', value: '24', icon: <Icon name="message" /> },
-              ]}
-            />
-            <MaterialCard
-              date="OCT 20, 2024"
-              title="Embedded Systems Design"
-              tags={['HARDWARE', 'RTOS']}
-              metrics={[
-                { label: 'cards', value: '20', icon: <Icon name="layers" /> },
-                { label: 'minutes', value: '15', icon: <Icon name="clock" /> },
-                { label: 'chats', value: '56', icon: <Icon name="message" /> },
-              ]}
-            />
-            <MaterialCard
-              date="OCT 18, 2024"
-              title="Network Security Protocols"
-              tags={['SECURITY', 'SSL/TLS']}
-              metrics={[
-                { label: 'cards', value: '15', icon: <Icon name="layers" /> },
-                { label: 'minutes', value: '10', icon: <Icon name="clock" /> },
-                { label: 'chats', value: '12', icon: <Icon name="message" /> },
-              ]}
-            />
+            {handouts.length === 0 && !listError ? (
+              <p className="col-span-full text-[13px] text-white/45">
+                No handouts yet. When your lecturer publishes approved materials, they will appear here.
+              </p>
+            ) : (
+              handouts.map((h) => (
+                <HandoutLinkCard
+                  key={h.id}
+                  id={h.id}
+                  title={h.title}
+                  createdAt={h.created_at}
+                  status={h.status}
+                />
+              ))
+            )}
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">

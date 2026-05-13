@@ -52,6 +52,9 @@ class QuizService:
         self._quizzes.add(quiz)
         return quiz
 
+    def get_latest_for_handout(self, handout_id: int) -> Quiz | None:
+        return self._quizzes.latest_for_handout(handout_id)
+
     def get_payload(self, quiz_id: int) -> QuizPayload:
         """Return the parsed quiz content for display to students."""
         quiz = self._quizzes.get(quiz_id)

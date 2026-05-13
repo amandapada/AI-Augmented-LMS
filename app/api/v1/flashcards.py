@@ -6,8 +6,8 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import get_current_user, get_flashcard_service, require_role
-from app.models.user import User, UserRole
+from app.core.dependencies import get_current_user, get_flashcard_service
+from app.models.user import User
 from app.schemas.study import (
     FlashcardGenerateResponse,
     FlashcardOut,
@@ -26,7 +26,7 @@ router = APIRouter(tags=["flashcards"])
 def generate(
     handout_id: int,
     service: FlashcardService = Depends(get_flashcard_service),
-    _user: User = Depends(require_role(UserRole.LECTURER, UserRole.ADMIN)),
+    _user: User = Depends(get_current_user),
 ):
     """Generate and persist 10 flashcards for a handout (FC-1)."""
     cards = service.generate_for_handout(handout_id)

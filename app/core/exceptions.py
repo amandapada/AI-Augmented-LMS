@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,26 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"code": exc.code, "message": exc.message, "details": exc.details},
+    )
+
+
+async def database_operational_error_handler(
+    request: Request, exc: OperationalError
+) -> JSONResponse:
+    """Turn SQLAlchemy/psycopg connection errors into 503 with a clear client message."""
+
+    logger.warning("Database connection failed on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "code": "database_unavailable",
+            "message": (
+                "Cannot connect to the database. Start PostgreSQL and set DATABASE_URL in your "
+                ".env to match your server. For local Postgres without TLS, append "
+                "?sslmode=disable to the URL."
+            ),
+            "details": {},
+        },
     )
 
 

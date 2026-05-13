@@ -6,6 +6,10 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { StudentDashboardPage } from './pages/StudentDashboardPage'
 import { StudentBrowseCoursesPage } from './pages/StudentBrowseCoursesPage'
 import { StudentStudySchedulePage } from './pages/StudentStudySchedulePage'
+import { StudentHandoutDetailPage } from './pages/StudentHandoutDetailPage'
+import { StudentHandoutChatPage } from './pages/StudentHandoutChatPage'
+import { StudentFlashcardSessionPage } from './pages/StudentFlashcardSessionPage'
+import { StudentQuizPage } from './pages/StudentQuizPage'
 import { LecturerDashboardPage } from './pages/LecturerDashboardPage'
 import { LecturerUploadPage } from './pages/LecturerUploadPage'
 import { LecturerAnalyticsPage } from './pages/LecturerAnalyticsPage'
@@ -32,6 +36,38 @@ export default function App() {
         element={
           <ProtectedRoute allowRole="student">
             <StudentBrowseCoursesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/handouts/:handoutId"
+        element={
+          <ProtectedRoute allowRole="student">
+            <StudentHandoutDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/handouts/:handoutId/chat"
+        element={
+          <ProtectedRoute allowRole="student">
+            <StudentHandoutChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/handouts/:handoutId/flashcards"
+        element={
+          <ProtectedRoute allowRole="student">
+            <StudentFlashcardSessionPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/handouts/:handoutId/quiz/:quizId"
+        element={
+          <ProtectedRoute allowRole="student">
+            <StudentQuizPage />
           </ProtectedRoute>
         }
       />

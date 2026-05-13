@@ -14,7 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
-from app.core.exceptions import AppError, app_error_handler, unhandled_exception_handler
+from app.core.exceptions import (
+    AppError,
+    app_error_handler,
+    database_operational_error_handler,
+    unhandled_exception_handler,
+)
+from sqlalchemy.exc import OperationalError
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -42,8 +48,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Exception handlers: domain errors → structured 4xx, anything else → 500 envelope.
+    # Exception handlers: domain errors → structured 4xx, DB down → 503, else → 500 envelope.
     app.add_exception_handler(AppError, app_error_handler)
+    app.add_exception_handler(OperationalError, database_operational_error_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     # Versioned API.
