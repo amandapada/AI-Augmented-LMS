@@ -58,7 +58,32 @@ def get_db() -> Generator[Session, None, None]:
 # ``@lru_cache`` must not wrap FastAPI dependencies that take a Pydantic
 # ``Settings`` instance: ``Settings`` is not hashable, so the cache raises
 # ``TypeError`` when resolving login and other routes.
+# Cached builders therefore take only primitive / hashable arguments.
 
+
+@lru_cache
+def _redis_client(redis_url: str) -> redis.Redis:
+    return redis.from_url(redis_url)
+
+
+@lru_cache
+def _supabase_client(url: str, key: str) -> Client:
+    return create_client(url, key)
+
+
+@lru_cache
+def _groq_client(api_key: str, llm_model: str, vlm_model: str) -> GroqClient:
+    return GroqClient(api_key=api_key, llm_model=llm_model, vlm_model=vlm_model)
+
+
+@lru_cache
+def _password_hasher(rounds: int) -> PasswordHasher:
+    return PasswordHasher(rounds=rounds)
+
+
+@lru_cache
+def _jwt_service(secret: str, algorithm: str, expire_minutes: int) -> JWTService:
+    return JWTService(secret=secret, algorithm=algorithm, expire_minutes=expire_minutes)
 
 
 def get_redis_client(settings: Settings = Depends(get_settings)) -> redis.Redis:
